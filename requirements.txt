@@ -1,0 +1,18 @@
+# Core Dependencies
+requests
+python-dotenv
+openai
+tiktoken
+tqdm
+numpy
+
+# Flask Web Framework
+Flask
+Werkzeug
+Jinja2
+MarkupSafe
+itsdangerous
+
+# File Processing
+pathlib2
+ujson

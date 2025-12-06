@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}配置 - LLMjuice PDF文献处理系统{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">
+                    <i class="fas fa-cog me-2"></i>系统配置
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" id="config-form">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-1"></i>
+                        请配置必要的API密钥以启用系统功能。配置信息将保存在.env文件中。
+                    </div>
+
+                    <!-- MinerU 配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-eye me-2"></i>MinerU OCR 配置
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="MinerU_KEY" class="form-label">
+                                    MinerU API Key <span class="text-danger">*</span>
+                                </label>
+                                <textarea class="form-control" id="MinerU_KEY" name="MinerU_KEY"
+                                          rows="3" placeholder="请输入MinerU API密钥" required>{{ config.MinerU_KEY }}</textarea>
+                                <div class="form-text">
+                                    从 <a href="https://mineru.net/apiManage/docs" target="_blank">MinerU官网</a>
+                                    获取API密钥，用于PDF文档的OCR识别。
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI模型配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-brain me-2"></i>AI模型配置
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="API_KEY" class="form-label">
+                                    API Key <span class="text-danger">*</span>
+                                </label>
+                                <input type="password" class="form-control" id="API_KEY" name="API_KEY"
+                                       value="{{ config.API_KEY }}" placeholder="请输入AI模型的API密钥" required>
+                                <div class="form-text">
+                                    用于生成问答对的AI模型API密钥。
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="BASE_URL" class="form-label">Base URL</label>
+                                <input type="url" class="form-control" id="BASE_URL" name="BASE_URL"
+                                       value="{{ config.BASE_URL }}" placeholder="https://api.deepseek.com">
+                                <div class="form-text">
+                                    API服务的基础URL，默认为DeepSeek API地址。
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="MODEL_NAME" class="form-label">模型名称</label>
+                                <select class="form-select" id="MODEL_NAME" name="MODEL_NAME">
+                                    <option value="deepseek-chat" {% if config.MODEL_NAME == 'deepseek-chat' %}selected{% endif %}>
+                                        deepseek-chat
+                                    </option>
+                                    <option value="deepseek-coder" {% if config.MODEL_NAME == 'deepseek-coder' %}selected{% endif %}>
+                                        deepseek-coder
+                                    </option>
+                                    <option value="gpt-3.5-turbo" {% if config.MODEL_NAME == 'gpt-3.5-turbo' %}selected{% endif %}>
+                                        gpt-3.5-turbo
+                                    </option>
+                                    <option value="gpt-4" {% if config.MODEL_NAME == 'gpt-4' %}selected{% endif %}>
+                                        gpt-4
+                                    </option>
+                                    <option value="custom" {% if config.MODEL_NAME and config.MODEL_NAME not in ['deepseek-chat', 'deepseek-coder', 'gpt-3.5-turbo', 'gpt-4'] %}selected{% endif %}>
+                                        自定义模型
+                                    </option>
+                                </select>
+                                <input type="text" class="form-control mt-2 d-none" id="custom-model-name"
+                                       placeholder="请输入自定义模型名称" value="{{ config.MODEL_NAME }}">
+                                <div class="form-text">
+                                    选择要使用的AI模型，或输入自定义模型名称。
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 配置验证 -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-check-circle me-2"></i>配置验证
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <button type="button" class="btn btn-outline-info w-100" onclick="testMinerUConfig()">
+                                        <i class="fas fa-vial me-1"></i>测试MinerU配置
+                                    </button>
+                                </div>
+                                <div class="col-md-6">
+                                    <button type="button" class="btn btn-outline-info w-100" onclick="testAIConfig()">
+                                        <i class="fas fa-vial me-1"></i>测试AI配置
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="test-results" class="mt-3"></div>
+                        </div>
+                    </div>
+
+                    <!-- 提交按钮 -->
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>返回主页
+                        </a>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-save me-1"></i>保存配置
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 配置说明 -->
+        <div class="card mt-4">
+            <div class="card-header bg-light">
+                <h6 class="mb-0">
+                    <i class="fas fa-question-circle me-2"></i>配置说明
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="accordion" id="configHelp">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#mineruHelp">
+                                <i class="fas fa-eye me-2"></i>MinerU OCR 配置说明
+                            </button>
+                        </h2>
+                        <div id="mineruHelp" class="accordion-collapse collapse" data-bs-parent="#configHelp">
+                            <div class="accordion-body">
+                                <p>MinerU是一个强大的PDF文档OCR识别服务，支持:</p>
+                                <ul>
+                                    <li>高质量的文字识别</li>
+                                    <li>保留文档格式和布局</li>
+                                    <li>支持中英文混合识别</li>
+                                    <li>自动生成Markdown格式输出</li>
+                                </ul>
+                                <p><strong>获取API密钥步骤:</strong></p>
+                                <ol>
+                                    <li>访问 <a href="https://mineru.net/apiManage/docs" target="_blank">MinerU官网</a></li>
+                                    <li>注册账号并登录</li>
+                                    <li>进入API管理页面</li>
+                                    <li>创建新的API密钥</li>
+                                    <li>复制密钥到配置页面</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#aiHelp">
+                                <i class="fas fa-brain me-2"></i>AI模型配置说明
+                            </button>
+                        </h2>
+                        <div id="aiHelp" class="accordion-collapse collapse" data-bs-parent="#configHelp">
+                            <div class="accordion-body">
+                                <p>AI模型用于基于OCR识别结果生成问答对训练数据:</p>
+                                <ul>
+                                    <li><strong>DeepSeek系列:</strong> 性价比高，支持中文对话</li>
+                                    <li><strong>GPT系列:</strong> OpenAI官方模型，质量稳定</li>
+                                    <li><strong>自定义模型:</strong> 支持其他兼容OpenAI API格式的模型</li>
+                                </ul>
+                                <p><strong>配置要点:</strong></p>
+                                <ul>
+                                    <li>确保API密钥有效且有足够的额度</li>
+                                    <li>Base URL需要准确对应API服务商</li>
+                                    <li>模型名称需要与服务商支持的模型一致</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // 模型选择变化处理
+    $('#MODEL_NAME').change(function() {
+        if ($(this).val() === 'custom') {
+            $('#custom-model-name').removeClass('d-none');
+        } else {
+            $('#custom-model-name').addClass('d-none');
+        }
+    });
+
+    // 初始化时检查是否显示自定义模型输入框
+    if ($('#MODEL_NAME').val() === 'custom') {
+        $('#custom-model-name').removeClass('d-none');
+    }
+});
+
+// 提交表单时处理自定义模型名称
+$('#config-form').submit(function() {
+    if ($('#MODEL_NAME').val() === 'custom') {
+        $('#MODEL_NAME').val($('#custom-model-name').val());
+    }
+});
+</script>
+{% endblock %}
