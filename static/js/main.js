@@ -21,8 +21,14 @@ function initializeApp() {
     refreshFiles();
     updateStats();
 
+    // 立即更新一次生成参数和结果显示
+    updateGenerationConfig();
+    updateResults();
+
     // 设置定时更新
     setInterval(updateStats, 30000); // 每30秒更新统计信息
+    setInterval(updateGenerationConfig, 10000); // 每10秒更新生成参数
+    setInterval(updateResults, 5000); // 每5秒更新结果显示
 
     console.log('LLMjuice Web Application initialized');
 }
@@ -355,7 +361,7 @@ function updateProcessingDisplay(status) {
 }
 
 /**
- * 更新步骤状态 - 增强版
+ * 更新步骤状态 - 修复完成状态显示问题
  */
 function updateStepStatus(currentStep) {
     $('.step-card').removeClass('active completed');
@@ -381,10 +387,18 @@ function updateStepStatus(currentStep) {
             stepIcon.addClass('fa-check-circle');
             stepTitle.after('<span class="badge bg-success ms-2 step-status">已完成</span>');
         } else if (stepIndex === currentIndex) {
-            // 当前步骤
-            stepCard.addClass('active');
-            stepIcon.addClass('fa-spinner fa-spin');
-            stepTitle.after('<span class="badge bg-primary ms-2 step-status">进行中</span>');
+            // 当前步骤 - 特殊处理complete步骤
+            if (stepId === 'complete') {
+                // complete步骤应该是已完成状态，而不是进行中
+                stepCard.addClass('completed');
+                stepIcon.addClass('fa-check-circle');
+                stepTitle.after('<span class="badge bg-success ms-2 step-status">已完成</span>');
+            } else {
+                // 其他当前步骤显示为进行中
+                stepCard.addClass('active');
+                stepIcon.addClass('fa-spinner fa-spin');
+                stepTitle.after('<span class="badge bg-primary ms-2 step-status">进行中</span>');
+            }
         } else {
             // 未开始步骤
             stepIcon.addClass('fa-play-circle');
@@ -426,6 +440,49 @@ function updateStats() {
             $('#last-update').text(`最后更新: ${now}`);
         }
     });
+
+    // 同时更新生成参数
+    updateGenerationConfig();
+}
+
+/**
+ * 更新生成参数配置显示
+ */
+function updateGenerationConfig() {
+    $.get('/api/generation_config', function(config) {
+        if (config.error) {
+            console.error('获取生成参数失败:', config.error);
+            return;
+        }
+
+        // 更新并发数显示
+        $('#max-requests-display').text(config.max_requests_per_minute);
+
+        // 更新生成数量显示
+        $('#num-chat-display').text(config.num_chat_to_generate);
+
+        // 更新速度模式显示
+        const speedModeElement = $('#speed-mode-badge');
+        if (speedModeElement.length) {
+            let speedMode = '标准';
+            let speedClass = 'bg-info';
+
+            if (config.max_requests_per_minute <= 10) {
+                speedMode = '低速';
+                speedClass = 'bg-warning';
+            } else if (config.max_requests_per_minute > 30) {
+                speedMode = '高速';
+                speedClass = 'bg-danger';
+            }
+
+            speedModeElement.removeClass('bg-warning bg-info bg-danger').addClass(speedClass);
+            speedModeElement.text(speedMode);
+        }
+
+        console.log('生成参数已更新:', config);
+    }).fail(function() {
+        console.error('获取生成参数失败');
+    });
 }
 
 // 全局变量跟踪处理状态
@@ -433,22 +490,18 @@ let hasShownCompletionMessage = false;
 let lastProcessingState = null;
 
 /**
- * 更新结果区域 - 修复重复弹出问题
+ * 更新结果区域 - 支持任何状态下的结果显示
  */
 function updateResults() {
     $.get('/status', function(status) {
-        // 检查是否刚刚完成处理
-        const justCompleted = status.files && status.files.results.train_final &&
-                           !status.is_processing &&
-                           lastProcessingState && lastProcessingState.is_processing;
-
-        if (justCompleted && !hasShownCompletionMessage) {
+        // 检查是否有训练数据文件且处理未在进行中
+        if (status.files && status.files.results.train_final && !status.is_processing) {
             const result = status.files.results.train_final;
             const resultsHtml = `
                 <div class="alert alert-success fade-in">
                     <h6><i class="fas fa-check-circle me-1"></i>处理完成!</h6>
                     <p class="mb-2">最终训练数据文件已生成:</p>
-                    <a href="${result.download_url}" class="btn btn-success btn-sm">
+                    <a href="${result.download_url}" class="btn btn-success btn-sm" download>
                         <i class="fas fa-download me-1"></i>下载 ${result.name}
                     </a>
                     <div class="mt-2 small text-muted">
@@ -457,7 +510,28 @@ function updateResults() {
                 </div>
             `;
             $('#results-section').html(resultsHtml);
-            hasShownCompletionMessage = true;
+
+            // 如果是刚刚完成，显示完成消息
+            if (lastProcessingState && lastProcessingState.is_processing && !hasShownCompletionMessage) {
+                showAlert('success', '🎉 处理完成！训练数据已生成');
+                hasShownCompletionMessage = true;
+            }
+        } else if (status.is_processing) {
+            // 处理中状态
+            $('#results-section').html(`
+                <div class="text-center text-muted py-4">
+                    <i class="fas fa-cogs fa-3x mb-3 text-primary"></i>
+                    <p class="mb-0">正在处理中，请稍候...</p>
+                </div>
+            `);
+        } else {
+            // 未开始处理状态
+            $('#results-section').html(`
+                <div class="text-center text-muted py-4">
+                    <i class="fas fa-hourglass-half fa-2x mb-2"></i>
+                    <p>等待处理完成...</p>
+                </div>
+            `);
         }
 
         // 更新状态记录

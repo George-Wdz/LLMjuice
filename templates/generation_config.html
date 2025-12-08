@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block title %}生成参数配置 - LLMjuice PDF文献处理系统{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-sliders-h me-2"></i>问答对生成参数配置
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-1"></i>
+                    简化版配置：主要调整生成数量和并发数。其他参数将使用固定值以保持稳定。
+                </div>
+
+                <form method="POST" id="generation-config-form">
+                    <!-- 并发控制配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-rocket me-2"></i>并发控制
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="max_requests_per_minute" class="form-label">
+                                    最大请求数/分钟 <span class="text-danger">*</span>
+                                </label>
+                                <input type="number" class="form-control" id="max_requests_per_minute"
+                                       name="max_requests_per_minute" value="{{ params.max_requests_per_minute }}"
+                                       min="1" max="1000" required>
+                                <div class="form-text">
+                                    每分钟最大API请求数，默认为30。建议根据API服务商限制调整。
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="setConcurrency(10)">
+                                        <i class="fas fa-turtle me-1"></i>低速 (10)
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-outline-success btn-sm w-100" onclick="setConcurrency(30)">
+                                        <i class="fas fa-play me-1"></i>标准 (30)
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-outline-warning btn-sm w-100" onclick="setConcurrency(100)">
+                                        <i class="fas fa-rocket me-1"></i>高速 (100)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 生成数量配置 -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-comments me-2"></i>生成数量
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="num_chat_to_generate" class="form-label">
+                                    生成问答对数量 <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="num_chat_to_generate"
+                                           name="num_chat_to_generate" value="{{ params.num_chat_to_generate }}"
+                                           min="1" max="{{ params.max_chat_to_generate }}" required>
+                                    <span class="input-group-text">/ {{ params.max_chat_to_generate }} (最大值)</span>
+                                </div>
+                                <div class="form-text">
+                                    每个文本片段生成的问答对数量。默认为最大值，可以减少以节省API调用成本。
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="setMaxCount()">
+                                        <i class="fas fa-arrows-alt me-1"></i>最大值
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-outline-info btn-sm w-100" onclick="setHalfCount()">
+                                        <i class="fas fa-cut me-1"></i>一半数量
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="setSingleCount()">
+                                        <i class="fas fa-hand-pointer me-1"></i>单个测试
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 固定参数显示 -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <i class="fas fa-lock me-2"></i>固定参数 (不可修改)
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="config-item mb-2">
+                                        <i class="fas fa-language me-1"></i>
+                                        <span>生成语言:</span>
+                                        <span class="badge bg-primary ms-1">中文 (zh)</span>
+                                    </div>
+                                    <div class="config-item mb-2">
+                                        <i class="fas fa-comments me-1"></i>
+                                        <span>对话轮次:</span>
+                                        <span class="badge bg-success ms-1">1轮对话</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="config-item mb-2">
+                                        <i class="fas fa-file-text me-1"></i>
+                                        <span>输入文件:</span>
+                                        <span class="badge bg-info ms-1">processed_data.jsonl</span>
+                                    </div>
+                                    <div class="config-item mb-2">
+                                        <i class="fas fa-download me-1"></i>
+                                        <span>输出文件:</span>
+                                        <span class="badge bg-secondary ms-1">train_final.jsonl</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="alert alert-light small mb-0">
+                                <i class="fas fa-info-circle me-1"></i>
+                                这些参数保持固定以确保生成质量和系统稳定性。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 提交按钮 -->
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>返回主页
+                        </a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save me-1"></i>保存参数
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="card mt-4">
+            <div class="card-header bg-light">
+                <h6 class="mb-0">
+                    <i class="fas fa-question-circle me-2"></i>使用说明
+                </h6>
+            </div>
+            <div class="card-body">
+                <h6 class="text-primary">🚀 快速开始</h6>
+                <ol>
+                    <li><strong>首次使用</strong>: 使用默认参数（标准速度，最大生成数量）</li>
+                    <li><strong>网络慢</strong>: 选择低速模式，减少并发请求数</li>
+                    <li><strong>API配额有限</strong>: 选择少量生成数量，如单个测试</li>
+                    <li><strong>大量处理</strong>: 选择高速模式，最大生成数量</li>
+                </ol>
+
+                <h6 class="text-warning mt-3">⚠️ 注意事项</h6>
+                <ul>
+                    <li>并发数过高可能触发API限制</li>
+                    <li>生成数量越多，处理时间越长，API成本越高</li>
+                    <li>建议先使用少量数据测试效果</li>
+                    <li>固定参数确保生成质量一致</li>
+                </ul>
+
+                <h6 class="text-success mt-3">💡 性能建议</h6>
+                <ul>
+                    <li><strong>DeepSeek API</strong>: 推荐30并发/分钟，稳定可靠</li>
+                    <li><strong>OpenAI API</strong>: 可使用更高并发，但需注意限制</li>
+                    <li><strong>家庭网络</strong>: 建议10并发/分钟，避免超时</li>
+                    <li><strong>服务器环境</strong>: 可使用100并发/分钟，最大化效率</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // 初始化显示
+    updateConfigInfo();
+});
+
+function setConcurrency(value) {
+    $('#max_requests_per_minute').val(value);
+    updateConfigInfo();
+}
+
+function setMaxCount() {
+    $('#num_chat_to_generate').val('{{ params.max_chat_to_generate }}');
+    updateConfigInfo();
+}
+
+function setHalfCount() {
+    const half = Math.floor('{{ params.max_chat_to_generate }}' / 2);
+    $('#num_chat_to_generate').val(half > 0 ? half : 1);
+    updateConfigInfo();
+}
+
+function setSingleCount() {
+    $('#num_chat_to_generate').val(1);
+    updateConfigInfo();
+}
+
+function updateConfigInfo() {
+    const concurrency = $('#max_requests_per_minute').val();
+    const numChat = $('#num_chat_to_generate').val();
+    const maxCount = '{{ params.max_chat_to_generate }}';
+
+    // 估算处理时间（基于经验值）
+    let timeEstimate;
+    if (concurrency <= 10) {
+        timeEstimate = numChat * 30; // 30秒/个
+    } else if (concurrency <= 30) {
+        timeEstimate = numChat * 10; // 10秒/个
+    } else {
+        timeEstimate = numChat * 5;  // 5秒/个
+    }
+
+    // 估算API成本（基于经验值，仅供参考）
+    const estimatedCost = numChat * 0.001; // 每个问答对约0.001元
+
+    // 更新提示信息
+    const infoHtml = `
+        <div class="alert alert-info small">
+            <i class="fas fa-chart-line me-1"></i>
+            <strong>配置预览:</strong><br>
+            并发数: ${concurrency}/分钟 | 生成数量: ${numChat}/${maxCount}<br>
+            预计耗时: ${formatTime(timeEstimate)} | 预估成本: ¥${estimatedCost.toFixed(4)}
+        </div>
+    `;
+
+    // 如果有显示配置信息的地方，更新它
+    if ($('#config-preview').length === 0) {
+        $('#generation-config-form').prepend(infoHtml);
+    } else {
+        $('#config-preview').replaceWith(infoHtml);
+    }
+}
+
+function formatTime(seconds) {
+    if (seconds < 60) {
+        return `${seconds}秒`;
+    } else if (seconds < 3600) {
+        return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+    } else {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return `${hours}小时${minutes}分`;
+    }
+}
+
+// 表单提交验证
+$('#generation-config-form').on('submit', function(e) {
+    const numChat = parseInt($('#num_chat_to_generate').val());
+    const maxCount = parseInt('{{ params.max_chat_to_generate }}');
+
+    if (numChat < 1 || numChat > maxCount) {
+        alert(`生成数量必须在1到${maxCount}之间`);
+        e.preventDefault();
+        return false;
+    }
+
+    const concurrency = parseInt($('#max_requests_per_minute').val());
+    if (concurrency < 1 || concurrency > 1000) {
+        alert('并发数必须在1到1000之间');
+        e.preventDefault();
+        return false;
+    }
+
+    // 确认对话框
+    const confirmMsg = `确认配置：\n并发数: ${concurrency}/分钟\n生成数量: ${numChat}/${maxCount}\n\n是否保存？`;
+    if (!confirm(confirmMsg)) {
+        e.preventDefault();
+        return false;
+    }
+
+    return true;
+});
+</script>
+{% endblock %}

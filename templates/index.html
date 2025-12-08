@@ -166,11 +166,11 @@
             </div>
         </div>
 
-        <!-- 配置状态 -->
+        <!-- API配置状态 -->
         <div class="card mb-4">
             <div class="card-header bg-warning text-dark">
                 <h6 class="mb-0">
-                    <i class="fas fa-cog me-2"></i>配置状态
+                    <i class="fas fa-cog me-2"></i>API配置状态
                 </h6>
             </div>
             <div class="card-body">
@@ -190,7 +190,51 @@
                 </div>
                 <div class="mt-3">
                     <a href="{{ url_for('config') }}" class="btn btn-outline-warning btn-sm w-100">
-                        <i class="fas fa-edit me-1"></i>修改配置
+                        <i class="fas fa-edit me-1"></i>修改API配置
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 生成参数状态 -->
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h6 class="mb-0">
+                    <i class="fas fa-sliders-h me-2"></i>生成参数配置
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row text-center mb-3">
+                    <div class="col-6">
+                        <div class="h5 text-primary mb-1" id="max-requests-display">{{ generation_config.max_requests_per_minute }}</div>
+                        <div class="small text-muted">请求数/分钟</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="h5 text-info mb-1" id="num-chat-display">{{ generation_config.num_chat_to_generate }}</div>
+                        <div class="small text-muted">生成数量/总数</div>
+                    </div>
+                </div>
+                <div class="config-item mb-2">
+                    <i class="fas fa-rocket me-1"></i>
+                    <span>速度模式:</span>
+                    <span class="badge bg-info ms-1" id="speed-mode-badge">
+                        {% if generation_config.max_requests_per_minute <= 10 %}
+                            低速
+                        {% elif generation_config.max_requests_per_minute <= 30 %}
+                            标准
+                        {% else %}
+                            高速
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="config-item mb-2">
+                    <i class="fas fa-comments me-1"></i>
+                    <span>对话模式:</span>
+                    <span class="badge bg-success ms-1">1轮对话 (固定)</span>
+                </div>
+                <div class="mt-3">
+                    <a href="{{ url_for('generation_config') }}" class="btn btn-outline-info btn-sm w-100">
+                        <i class="fas fa-sliders-h me-1"></i>调整生成参数
                     </a>
                 </div>
             </div>

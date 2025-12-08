@@ -83,7 +83,7 @@ def get_processing_steps():
         {
             'id': 'generate',
             'name': '生成问答对',
-            'description': '基于片段生成训练数据'
+            'description': '基于片段生成训练数据 (最耗时)'
         },
         {
             'id': 'complete',
@@ -91,6 +91,75 @@ def get_processing_steps():
             'description': '所有处理步骤完成'
         }
     ]
+
+def get_generation_params():
+    """获取问答对生成参数"""
+    # 强制重新加载环境变量，覆盖已存在的环境变量
+    load_dotenv(override=True)
+
+    # 获取片段总数用于计算最大生成数量
+    try:
+        processed_data_path = Path('data/split/processed_data.jsonl')
+        if processed_data_path.exists():
+            with open(processed_data_path, 'r', encoding='utf-8') as f:
+                max_count = sum(1 for line in f if line.strip())
+        else:
+            max_count = 1
+    except:
+        max_count = 1
+
+    # 获取用户设置的生成数量，默认为最大值
+    user_num_chat = os.getenv('NUM_CHAT_TO_GENERATE')
+    if user_num_chat and user_num_chat.lower() == 'max':
+        num_chat = max_count
+    else:
+        try:
+            num_chat = int(user_num_chat) if user_num_chat else max_count
+        except (ValueError, TypeError):
+            num_chat = max_count
+
+    return {
+        'max_requests_per_minute': int(os.getenv('MAX_REQUESTS_PER_MINUTE', '30')),
+        'num_chat_to_generate': num_chat,
+        'max_chat_to_generate': max_count,
+        'num_turn_ratios': [1, 0, 0, 0, 0]  # 固定1轮对话
+    }
+
+def save_generation_params(params):
+    """保存问答对生成参数到环境变量"""
+    try:
+        env_file = Path('.env')
+        if not env_file.exists():
+            env_file.touch()
+
+        # 验证参数
+        required_keys = ['max_requests_per_minute', 'num_chat_to_generate', 'max_chat_to_generate']
+        for key in required_keys:
+            if key not in params:
+                logger.error(f"缺少必需参数: {key}")
+                return False
+
+        # 只保存用户可配置的参数
+        set_key('.env', 'MAX_REQUESTS_PER_MINUTE', str(params['max_requests_per_minute']))
+
+        # 保存生成数量，如果是最大值则保存为'max'
+        if params['num_chat_to_generate'] == params['max_chat_to_generate']:
+            set_key('.env', 'NUM_CHAT_TO_GENERATE', 'max')
+        else:
+            set_key('.env', 'NUM_CHAT_TO_GENERATE', str(params['num_chat_to_generate']))
+
+        # 固定1轮对话比例
+        set_key('.env', 'NUM_TURN_RATIOS', '1,0,0,0,0')
+
+        # 重新加载环境变量以立即生效，强制覆盖已存在的环境变量
+        load_dotenv(override=True)
+        logger.info(f"成功保存生成参数: max_requests={params['max_requests_per_minute']}, num_chat={params['num_chat_to_generate']}")
+        return True
+
+    except Exception as e:
+        logger.error(f"保存生成参数失败: {e}")
+        logger.error(f"参数详情: {params}")
+        return False
 
 def get_env_config():
     """获取环境变量配置"""
@@ -206,6 +275,7 @@ def processing_worker():
         processing_status['error'] = None
 
         steps = get_processing_steps()
+        total_steps = len(steps) - 1  # 减去complete步骤
         current_step_index = 0
 
         # 检查配置
@@ -213,9 +283,13 @@ def processing_worker():
         if not all([config['MinerU_KEY'], config['API_KEY']]):
             raise Exception("请先配置API密钥")
 
+        # 获取生成参数
+        gen_params = get_generation_params()
+        logger.info(f"使用生成参数: {gen_params}")
+
         # 步骤1: OCR处理
         processing_status['current_step'] = 'ocr'
-        processing_status['progress'] = (current_step_index + 1) / len(steps) * 100
+        processing_status['progress'] = (current_step_index / total_steps) * 100
         processing_status['message'] = '正在进行OCR识别...'
 
         run_processing_script('batch_ocr.py')
@@ -223,29 +297,39 @@ def processing_worker():
 
         # 步骤2: 数据切分
         processing_status['current_step'] = 'split'
-        processing_status['progress'] = (current_step_index + 1) / len(steps) * 100
+        processing_status['progress'] = (current_step_index / total_steps) * 100
         processing_status['message'] = '正在进行数据切分...'
 
         run_processing_script('data_split.py')
         current_step_index += 1
 
-        # 步骤3: 生成问答对
+        # 步骤3: 生成问答对 (使用固定参数)
         processing_status['current_step'] = 'generate'
-        processing_status['progress'] = (current_step_index + 1) / len(steps) * 100
-        processing_status['message'] = '正在生成问答对...'
+        processing_status['progress'] = (current_step_index / total_steps) * 100
+        processing_status['message'] = f'正在生成问答对 (并发: {gen_params["max_requests_per_minute"]}/分钟, 生成数量: {gen_params["num_chat_to_generate"]})...'
 
-        run_processing_script('data_generatefinal.py',
-                            '--reference_filepaths', './data/split/processed_data.jsonl',
-                            '--save_filepath', './data/train_data/train_final.jsonl',
-                            '--num_chat_to_generate', '1',
-                            '--language', 'zh',
-                            '--num_turn_ratios', '1', '0', '0', '0', '0')
+        # 构建命令参数 - 使用固定参数
+        cmd_args = [
+            '--reference_filepaths', './data/split/processed_data.jsonl',
+            '--save_filepath', './data/train_data/train_final.jsonl',
+            '--num_chat_to_generate', str(gen_params['num_chat_to_generate']),
+            '--language', 'zh',
+            '--num_turn_ratios', '1', '0', '0', '0', '0'
+        ]
+
+        # 只有用户设置了并发数才添加并发参数
+        if gen_params['max_requests_per_minute'] != 30:  # 30是新的默认值
+            cmd_args.extend([
+                '--max_requests_per_minute', str(gen_params['max_requests_per_minute'])
+            ])
+
+        run_processing_script('data_generatefinal.py', *cmd_args)
         current_step_index += 1
 
         # 完成
         processing_status['current_step'] = 'complete'
         processing_status['progress'] = 100
-        processing_status['message'] = '处理完成！'
+        processing_status['message'] = '🎉 所有处理步骤完成！'
         processing_status['is_processing'] = False
 
         logger.info("所有处理步骤完成")
@@ -253,7 +337,7 @@ def processing_worker():
     except Exception as e:
         logger.error(f"处理过程中发生错误: {e}")
         processing_status['error'] = str(e)
-        processing_status['message'] = f'处理失败: {str(e)}'
+        processing_status['message'] = f'❌ 处理失败: {str(e)}'
         processing_status['is_processing'] = False
 
 # 路由定义
@@ -263,6 +347,7 @@ def index():
     return render_template('index.html',
                          steps=get_processing_steps(),
                          config=get_env_config(),
+                         generation_config=get_generation_params(),
                          results=get_processing_results())
 
 @app.route('/config', methods=['GET', 'POST'])
@@ -284,6 +369,49 @@ def config():
         return redirect(url_for('config'))
 
     return render_template('config.html', config=get_env_config())
+
+@app.route('/generation_config', methods=['GET', 'POST'])
+def generation_config():
+    """问答对生成参数配置页面"""
+    if request.method == 'POST':
+        try:
+            # 获取表单数据
+            max_requests = int(request.form.get('max_requests_per_minute', 30))
+            num_chat = request.form.get('num_chat_to_generate', 'max')
+
+            # 获取当前最大生成数量
+            current_params = get_generation_params()
+            max_chat = current_params['max_chat_to_generate']
+
+            # 处理生成数量
+            if num_chat == 'max':
+                num_chat_value = max_chat
+            else:
+                num_chat_value = int(num_chat)
+                if num_chat_value > max_chat:
+                    num_chat_value = max_chat
+
+            # 构建参数字典
+            params = {
+                'max_requests_per_minute': max_requests,
+                'num_chat_to_generate': num_chat_value,
+                'max_chat_to_generate': max_chat,
+                'num_turn_ratios': [1, 0, 0, 0, 0]  # 固定1轮对话
+            }
+
+            if save_generation_params(params):
+                flash('生成参数保存成功！', 'success')
+            else:
+                flash('生成参数保存失败！', 'error')
+
+        except ValueError as e:
+            flash(f'参数格式错误: {str(e)}', 'error')
+        except Exception as e:
+            flash(f'保存失败: {str(e)}', 'error')
+
+        return redirect(url_for('generation_config'))
+
+    return render_template('generation_config.html', params=get_generation_params())
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -408,6 +536,15 @@ def delete_file(filename):
     except Exception as e:
         logger.error(f"删除文件失败: {e}")
         return jsonify({'error': '删除失败'}), 500
+
+@app.route('/api/generation_config')
+def api_generation_config():
+    """获取生成参数配置API"""
+    try:
+        return jsonify(get_generation_params())
+    except Exception as e:
+        logger.error(f"获取生成参数失败: {e}")
+        return jsonify({'error': '获取参数失败'}), 500
 
 # 错误处理
 @app.errorhandler(413)
