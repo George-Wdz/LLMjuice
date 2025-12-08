@@ -98,30 +98,48 @@ def get_generation_params():
     load_dotenv(override=True)
 
     # 获取片段总数用于计算最大生成数量
+    current_max_count = 1
     try:
         processed_data_path = Path('data/split/processed_data.jsonl')
         if processed_data_path.exists():
             with open(processed_data_path, 'r', encoding='utf-8') as f:
-                max_count = sum(1 for line in f if line.strip())
-        else:
-            max_count = 1
+                current_max_count = sum(1 for line in f if line.strip())
     except:
-        max_count = 1
+        current_max_count = 1
 
-    # 获取用户设置的生成数量，默认为最大值
+    # 获取生成模式，默认为手动模式
+    generation_mode = os.getenv('GENERATION_MODE', 'manual').lower()
+
+    # 获取用户设置的生成数量
     user_num_chat = os.getenv('NUM_CHAT_TO_GENERATE')
-    if user_num_chat and user_num_chat.lower() == 'max':
-        num_chat = max_count
+
+    # 根据模式确定生成数量和显示的最大值
+    if generation_mode == 'auto':
+        # 自动模式：承诺处理所有切片，使用特殊值表示动态最大值
+        num_chat = -1  # -1 表示"处理所有切片"
+        display_max_count = 999999  # 前端显示的大数值
+        display_text = "自动最大化 (将处理所有切片)"
     else:
-        try:
-            num_chat = int(user_num_chat) if user_num_chat else max_count
-        except (ValueError, TypeError):
-            num_chat = max_count
+        # 手动模式：基于当前实际切片数量
+        display_max_count = current_max_count
+        display_text = f"当前最大值: {current_max_count}"
+
+        # 解析用户设置的数量
+        if user_num_chat and user_num_chat.lower() == 'max':
+            num_chat = current_max_count
+        else:
+            try:
+                num_chat = int(user_num_chat) if user_num_chat else current_max_count
+            except (ValueError, TypeError):
+                num_chat = current_max_count
 
     return {
         'max_requests_per_minute': int(os.getenv('MAX_REQUESTS_PER_MINUTE', '30')),
         'num_chat_to_generate': num_chat,
-        'max_chat_to_generate': max_count,
+        'max_chat_to_generate': display_max_count,
+        'current_max_chat_to_generate': current_max_count,  # 实际当前切片数
+        'generation_mode': generation_mode,
+        'display_text': display_text,
         'num_turn_ratios': [1, 0, 0, 0, 0]  # 固定1轮对话
     }
 
@@ -142,11 +160,22 @@ def save_generation_params(params):
         # 只保存用户可配置的参数
         set_key('.env', 'MAX_REQUESTS_PER_MINUTE', str(params['max_requests_per_minute']))
 
-        # 保存生成数量，如果是最大值则保存为'max'
-        if params['num_chat_to_generate'] == params['max_chat_to_generate']:
+        # 保存生成模式
+        generation_mode = params.get('generation_mode', 'manual')
+        set_key('.env', 'GENERATION_MODE', generation_mode)
+
+        # 根据模式保存生成数量
+        if generation_mode == 'auto':
+            # 自动模式：保存为'max'，表示处理所有切片
             set_key('.env', 'NUM_CHAT_TO_GENERATE', 'max')
         else:
-            set_key('.env', 'NUM_CHAT_TO_GENERATE', str(params['num_chat_to_generate']))
+            # 手动模式：保存实际值或'max'
+            if params['num_chat_to_generate'] == -1:
+                set_key('.env', 'NUM_CHAT_TO_GENERATE', 'max')
+            elif params['num_chat_to_generate'] == params['max_chat_to_generate']:
+                set_key('.env', 'NUM_CHAT_TO_GENERATE', 'max')
+            else:
+                set_key('.env', 'NUM_CHAT_TO_GENERATE', str(params['num_chat_to_generate']))
 
         # 固定1轮对话比例
         set_key('.env', 'NUM_TURN_RATIOS', '1,0,0,0,0')
@@ -377,25 +406,34 @@ def generation_config():
         try:
             # 获取表单数据
             max_requests = int(request.form.get('max_requests_per_minute', 30))
+            generation_mode = request.form.get('generation_mode', 'manual').lower()
             num_chat = request.form.get('num_chat_to_generate', 'max')
 
             # 获取当前最大生成数量
             current_params = get_generation_params()
             max_chat = current_params['max_chat_to_generate']
 
-            # 处理生成数量
-            if num_chat == 'max':
-                num_chat_value = max_chat
+            # 根据生成模式确定生成数量
+            if generation_mode == 'auto':
+                # 自动模式：使用特殊值 -1 表示"处理所有切片"
+                num_chat_value = -1
             else:
-                num_chat_value = int(num_chat)
-                if num_chat_value > max_chat:
+                # 手动模式：解析用户输入的数量
+                if num_chat == 'max':
                     num_chat_value = max_chat
+                else:
+                    num_chat_value = int(num_chat)
+                    if num_chat_value > max_chat:
+                        num_chat_value = max_chat
+                    elif num_chat_value < 1:
+                        num_chat_value = 1
 
             # 构建参数字典
             params = {
                 'max_requests_per_minute': max_requests,
                 'num_chat_to_generate': num_chat_value,
                 'max_chat_to_generate': max_chat,
+                'generation_mode': generation_mode,
                 'num_turn_ratios': [1, 0, 0, 0, 0]  # 固定1轮对话
             }
 

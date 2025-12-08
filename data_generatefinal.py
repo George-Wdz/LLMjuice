@@ -671,7 +671,11 @@ if __name__ == "__main__":
         pass
 
     valid_count = 0
-    if args.num_chat_to_generate > len(all_reference_data):
+    # 处理自动模式：如果 num_chat_to_generate 为 -1，则处理所有切片
+    if args.num_chat_to_generate == -1:
+        args.num_chat_to_generate = len(all_reference_data)
+        print(f"自动模式：将处理所有 {len(all_reference_data)} 个切片")
+    elif args.num_chat_to_generate > len(all_reference_data):
         print(f"Not enough references ({len(all_reference_data)}) to generate the requested number of dialogues ({args.num_chat_to_generate}). Change the number of chat to generate to the number of references ({len(all_reference_data)}).")
         args.num_chat_to_generate = len(all_reference_data)
 

@@ -66,34 +66,82 @@
                             </h6>
                         </div>
                         <div class="card-body">
+                            <!-- 数量模式选择 -->
                             <div class="mb-3">
+                                <label class="form-label">
+                                    生成模式 <span class="text-danger">*</span>
+                                </label>
+                                <div class="btn-group w-100" role="group" aria-label="生成模式选择">
+                                    <input type="radio" class="btn-check" name="generation_mode" id="manual_mode" value="manual"
+                                           {% if params.generation_mode != 'auto' %}checked{% endif %} onchange="toggleGenerationMode()">
+                                    <label class="btn btn-outline-primary" for="manual_mode">
+                                        <i class="fas fa-edit me-1"></i>手动指定数量
+                                    </label>
+
+                                    <input type="radio" class="btn-check" name="generation_mode" id="auto_mode" value="auto"
+                                           {% if params.generation_mode == 'auto' %}checked{% endif %} onchange="toggleGenerationMode()">
+                                    <label class="btn btn-outline-success" for="auto_mode">
+                                        <i class="fas fa-magic me-1"></i>自动最大化
+                                    </label>
+                                </div>
+                                <div class="form-text">
+                                    选择生成模式：手动指定数量或自动最大化到文件允许的最大值。
+                                </div>
+                            </div>
+
+                            <!-- 手动指定数量 -->
+                            <div class="mb-3" id="manual_count_section">
                                 <label for="num_chat_to_generate" class="form-label">
                                     生成问答对数量 <span class="text-danger">*</span>
                                 </label>
                                 <div class="input-group">
                                     <input type="number" class="form-control" id="num_chat_to_generate"
-                                           name="num_chat_to_generate" value="{{ params.num_chat_to_generate }}"
-                                           min="1" max="{{ params.max_chat_to_generate }}" required>
-                                    <span class="input-group-text">/ {{ params.max_chat_to_generate }} (最大值)</span>
+                                           name="num_chat_to_generate" value="{{ params.current_max_chat_to_generate if params.num_chat_to_generate == -1 else params.num_chat_to_generate }}"
+                                           min="1" max="{{ params.current_max_chat_to_generate }}"
+                                           {% if params.generation_mode == 'auto' %}disabled{% endif %} required>
+                                    <span class="input-group-text">/ {{ params.current_max_chat_to_generate }} (当前切片数)</span>
                                 </div>
                                 <div class="form-text">
-                                    每个文本片段生成的问答对数量。默认为最大值，可以减少以节省API调用成本。
+                                    {{ params.display_text }}。手动模式指定数量将基于当前实际切片数。
                                 </div>
                             </div>
 
-                            <div class="row">
-                                <div class="col-md-4">
-                                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="setMaxCount()">
-                                        <i class="fas fa-arrows-alt me-1"></i>最大值
+                            <!-- 自动最大化显示 -->
+                            <div class="mb-3 d-none" id="auto_count_section">
+                                <label class="form-label">
+                                    自动生成数量
+                                </label>
+                                <div class="alert alert-success">
+                                    <i class="fas fa-check-circle me-2"></i>
+                                    <strong>将自动处理所有切片生成问答对</strong><br>
+                                    <small>当前已有切片数: {{ params.current_max_chat_to_generate }} 个</small><br>
+                                    <small class="text-muted">系统会根据上传文件后的实际切片数量动态生成相应数量的问答对</small>
+                                </div>
+                            </div>
+
+                            <!-- 快捷设置按钮（仅手动模式显示） -->
+                            <div id="quick_buttons" class="row">
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="setMaxCount()"
+                                            {% if params.generation_mode == 'auto' %}disabled{% endif %}>
+                                        <i class="fas fa-arrows-alt me-1"></i>全部 ({{ params.current_max_chat_to_generate }})
                                     </button>
                                 </div>
-                                <div class="col-md-4">
-                                    <button type="button" class="btn btn-outline-info btn-sm w-100" onclick="setHalfCount()">
-                                        <i class="fas fa-cut me-1"></i>一半数量
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-outline-info btn-sm w-100" onclick="setHalfCount()"
+                                            {% if params.generation_mode == 'auto' %}disabled{% endif %}>
+                                        <i class="fas fa-cut me-1"></i>一半 ({{ (params.current_max_chat_to_generate // 2) }})
                                     </button>
                                 </div>
-                                <div class="col-md-4">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="setSingleCount()">
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-outline-warning btn-sm w-100" onclick="setQuarterCount()"
+                                            {% if params.generation_mode == 'auto' %}disabled{% endif %}>
+                                        <i class="fas fa-percentage me-1"></i>1/4 ({{ (params.current_max_chat_to_generate // 4) }})
+                                    </button>
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="setSingleCount()"
+                                            {% if params.generation_mode == 'auto' %}disabled{% endif %}>
                                         <i class="fas fa-hand-pointer me-1"></i>单个测试
                                     </button>
                                 </div>
@@ -195,6 +243,9 @@
 {% block extra_js %}
 <script>
 $(document).ready(function() {
+    // 初始化模式状态
+    toggleGenerationMode();
+
     // 初始化显示
     updateConfigInfo();
 });
@@ -204,14 +255,43 @@ function setConcurrency(value) {
     updateConfigInfo();
 }
 
+function toggleGenerationMode() {
+    const isManual = $('#manual_mode').is(':checked');
+
+    if (isManual) {
+        // 手动模式
+        $('#manual_count_section').removeClass('d-none');
+        $('#auto_count_section').addClass('d-none');
+        $('#num_chat_to_generate').prop('disabled', false).prop('required', true);
+        $('#quick_buttons button').prop('disabled', false);
+    } else {
+        // 自动模式
+        $('#manual_count_section').addClass('d-none');
+        $('#auto_count_section').removeClass('d-none');
+        $('#num_chat_to_generate').prop('disabled', true).prop('required', false);
+        $('#quick_buttons button').prop('disabled', true);
+    }
+
+    updateConfigInfo();
+}
+
 function setMaxCount() {
-    $('#num_chat_to_generate').val('{{ params.max_chat_to_generate }}');
+    const currentMax = {{ params.current_max_chat_to_generate }};
+    $('#num_chat_to_generate').val(currentMax);
     updateConfigInfo();
 }
 
 function setHalfCount() {
-    const half = Math.floor('{{ params.max_chat_to_generate }}' / 2);
+    const currentMax = {{ params.current_max_chat_to_generate }};
+    const half = Math.floor(currentMax / 2);
     $('#num_chat_to_generate').val(half > 0 ? half : 1);
+    updateConfigInfo();
+}
+
+function setQuarterCount() {
+    const currentMax = {{ params.current_max_chat_to_generate }};
+    const quarter = Math.floor(currentMax / 4);
+    $('#num_chat_to_generate').val(quarter > 0 ? quarter : 1);
     updateConfigInfo();
 }
 
@@ -222,11 +302,24 @@ function setSingleCount() {
 
 function updateConfigInfo() {
     const concurrency = $('#max_requests_per_minute').val();
-    const numChat = $('#num_chat_to_generate').val();
-    const maxCount = '{{ params.max_chat_to_generate }}';
+    const isAutoMode = $('#auto_mode').is(':checked');
+    const currentMax = {{ params.current_max_chat_to_generate }};
+
+    let numChat, displayText, timeEstimate, estimatedCost, maxDisplay;
+
+    if (isAutoMode) {
+        // 自动模式：将处理所有切片
+        numChat = currentMax > 0 ? currentMax : 10; // 如果当前没有切片，假设会有10个
+        displayText = `${numChat} (自动处理所有切片)`;
+        maxDisplay = "动态最大值";
+    } else {
+        // 手动模式使用输入值
+        numChat = parseInt($('#num_chat_to_generate').val()) || 1;
+        displayText = `${numChat} (手动指定)`;
+        maxDisplay = currentMax;
+    }
 
     // 估算处理时间（基于经验值）
-    let timeEstimate;
     if (concurrency <= 10) {
         timeEstimate = numChat * 30; // 30秒/个
     } else if (concurrency <= 30) {
@@ -236,14 +329,17 @@ function updateConfigInfo() {
     }
 
     // 估算API成本（基于经验值，仅供参考）
-    const estimatedCost = numChat * 0.001; // 每个问答对约0.001元
+    estimatedCost = numChat * 0.001; // 每个问答对约0.001元
 
     // 更新提示信息
+    const modeText = isAutoMode ? '自动最大化' : '手动指定';
+    const currentSlicesText = currentMax > 0 ? `当前切片数: ${currentMax}` : '暂无切片数据';
     const infoHtml = `
-        <div class="alert alert-info small">
+        <div id="config-preview" class="alert alert-info small">
             <i class="fas fa-chart-line me-1"></i>
             <strong>配置预览:</strong><br>
-            并发数: ${concurrency}/分钟 | 生成数量: ${numChat}/${maxCount}<br>
+            并发数: ${concurrency}/分钟 | 生成模式: ${modeText}<br>
+            ${currentSlicesText} | 生成数量: ${displayText}<br>
             预计耗时: ${formatTime(timeEstimate)} | 预估成本: ¥${estimatedCost.toFixed(4)}
         </div>
     `;
@@ -270,24 +366,42 @@ function formatTime(seconds) {
 
 // 表单提交验证
 $('#generation-config-form').on('submit', function(e) {
-    const numChat = parseInt($('#num_chat_to_generate').val());
-    const maxCount = parseInt('{{ params.max_chat_to_generate }}');
-
-    if (numChat < 1 || numChat > maxCount) {
-        alert(`生成数量必须在1到${maxCount}之间`);
-        e.preventDefault();
-        return false;
-    }
-
+    const isAutoMode = $('#auto_mode').is(':checked');
+    const currentMax = {{ params.current_max_chat_to_generate }};
     const concurrency = parseInt($('#max_requests_per_minute').val());
+
+    // 验证并发数
     if (concurrency < 1 || concurrency > 1000) {
         alert('并发数必须在1到1000之间');
         e.preventDefault();
         return false;
     }
 
+    // 验证生成数量（仅手动模式需要验证）
+    let numChat, confirmText;
+    if (isAutoMode) {
+        numChat = -1; // 自动模式使用特殊值
+        confirmText = '自动处理所有上传文件的切片';
+    } else {
+        numChat = parseInt($('#num_chat_to_generate').val());
+        if (isNaN(numChat) || numChat < 1) {
+            alert('生成数量必须至少为1');
+            e.preventDefault();
+            return false;
+        }
+        if (currentMax > 0 && numChat > currentMax) {
+            alert(`生成数量不能超过当前切片数 ${currentMax}`);
+            e.preventDefault();
+            return false;
+        }
+        confirmText = `${numChat} 个问答对`;
+    }
+
     // 确认对话框
-    const confirmMsg = `确认配置：\n并发数: ${concurrency}/分钟\n生成数量: ${numChat}/${maxCount}\n\n是否保存？`;
+    const modeText = isAutoMode ? '自动最大化' : '手动指定';
+    const maxText = currentMax > 0 ? `/${currentMax}` : ' (动态)';
+    const confirmMsg = `确认配置：\n并发数: ${concurrency}/分钟\n生成模式: ${modeText}\n当前切片数: ${currentMax}\n生成数量: ${confirmText}${maxText}\n\n是否保存？`;
+
     if (!confirm(confirmMsg)) {
         e.preventDefault();
         return false;
