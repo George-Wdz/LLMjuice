@@ -57,10 +57,12 @@ data/pdf/*
 data/markdown/*
 data/split/*
 data/train_data/*
+data/evaluate/*
 !data/pdf/.gitkeep
 !data/markdown/.gitkeep
 !data/split/.gitkeep
 !data/train_data/.gitkeep
+!data/evaluate/.gitkeep
 
 # Uploads
 uploads/*
