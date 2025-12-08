@@ -5,6 +5,7 @@ openai
 tiktoken
 tqdm
 numpy
+aiohttp
 
 # Flask Web Framework
 Flask

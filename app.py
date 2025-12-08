@@ -630,31 +630,45 @@ def start_evaluation():
     """启动评估任务"""
     try:
         config = request.json
+        logger.info(f"收到评估启动请求: {config}")
 
         # 验证配置
         required_fields = ['ft_model', 'base_model', 'judge_model', 'sample_count']
         for field in required_fields:
             if field not in config:
+                logger.error(f"缺少必需字段: {field}")
                 return jsonify({'success': False, 'message': f'缺少必需字段: {field}'})
 
         # 生成任务ID
         task_id = f"eval_{int(time.time())}"
+        logger.info(f"生成任务ID: {task_id}")
 
         # 创建任务
-        from evaluation_engine_simple import EvaluationTask
+        from evaluation_engine import EvaluationTask
         task = EvaluationTask(task_id, config)
         evaluation_tasks[task_id] = task
+        logger.info(f"任务已创建，当前任务数量: {len(evaluation_tasks)}")
 
         # 异步启动任务
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         import threading
 
         def run_task():
-            asyncio.run(run_evaluation_task(task))
+            try:
+                logger.info(f"开始执行任务: {task_id}")
+                # 在新线程中创建事件循环
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(task.run())
+                logger.info(f"任务执行完成: {task_id}")
+            except Exception as e:
+                logger.error(f"评估任务执行失败: {e}")
+                task.status = 'failed'
+                task.error = str(e)
 
         thread = threading.Thread(target=run_task)
+        thread.daemon = True
         thread.start()
+        logger.info(f"任务线程已启动: {task_id}")
 
         return jsonify({'success': True, 'task_id': task_id})
 
@@ -666,18 +680,23 @@ def start_evaluation():
 def get_evaluation_progress(task_id):
     """获取评估进度"""
     try:
+        logger.info(f"查询任务进度: {task_id}, 当前任务列表: {list(evaluation_tasks.keys())}")
+
         if task_id not in evaluation_tasks:
+            logger.error(f"任务不存在: {task_id}")
             return jsonify({'error': '任务不存在'}), 404
 
         task = evaluation_tasks[task_id]
-        return jsonify({
+        progress_data = {
             'status': task.status,
             'progress': task.progress,
             'current_step': task.current_step,
             'processed': task.processed,
             'total': task.total,
             'log_message': task.get_latest_log()
-        })
+        }
+        logger.info(f"返回进度数据: {progress_data}")
+        return progress_data
 
     except Exception as e:
         logger.error(f"获取进度失败: {e}")
@@ -741,11 +760,22 @@ def get_recent_evaluation_results():
 def get_evaluation_config():
     """获取评估配置（已保存的）"""
     try:
-        # 返回保存的配置信息（不包括API Key）
+        load_dotenv()
+
+        # 从环境变量读取已保存的配置信息（不包括API Key）
         config = {
-            'ft_model': {'api_url': '', 'model_name': ''},
-            'base_model': {'api_url': '', 'model_name': ''},
-            'judge_model': {'api_url': '', 'model_name': ''}
+            'ft_model': {
+                'api_url': os.getenv('FT_API_URL', ''),
+                'model_name': os.getenv('FT_MODEL_NAME', '')
+            },
+            'base_model': {
+                'api_url': os.getenv('BASE_API_URL', ''),
+                'model_name': os.getenv('BASE_MODEL_NAME', '')
+            },
+            'judge_model': {
+                'api_url': os.getenv('JUDGE_API_URL', os.getenv('BASE_URL', '')),  # 复用主配置作为后备
+                'model_name': os.getenv('JUDGE_MODEL_NAME', os.getenv('MODEL_NAME', ''))
+            }
         }
         return jsonify({'config': config})
     except Exception as e:
@@ -790,11 +820,11 @@ def save_evaluation_config():
             with open(env_path, 'r', encoding='utf-8') as f:
                 env_content = f.read()
 
-        # 保存微调模型和基座模型配置
+        # 保存所有模型配置
         lines = env_content.split('\n')
         new_lines = []
 
-        # 保留原有的Judge模型配置，更新或添加微调模型和基座模型配置
+        # 更新或添加所有模型配置
         for line in lines:
             if line.startswith('FT_API_URL='):
                 new_lines.append(f"FT_API_URL={data.get('ft_model', {}).get('api_url', '')}")
@@ -808,12 +838,19 @@ def save_evaluation_config():
                 new_lines.append(f"BASE_API_KEY={data.get('base_model', {}).get('api_key', '')}")
             elif line.startswith('BASE_MODEL_NAME='):
                 new_lines.append(f"BASE_MODEL_NAME={data.get('base_model', {}).get('model_name', '')}")
+            elif line.startswith('JUDGE_API_URL='):
+                new_lines.append(f"JUDGE_API_URL={data.get('judge_model', {}).get('api_url', '')}")
+            elif line.startswith('JUDGE_API_KEY='):
+                new_lines.append(f"JUDGE_API_KEY={data.get('judge_model', {}).get('api_key', '')}")
+            elif line.startswith('JUDGE_MODEL_NAME='):
+                new_lines.append(f"JUDGE_MODEL_NAME={data.get('judge_model', {}).get('model_name', '')}")
             else:
                 new_lines.append(line)
 
         # 如果没有找到相关配置行，在文件末尾添加
         config_keys = ['FT_API_URL', 'FT_API_KEY', 'FT_MODEL_NAME',
-                      'BASE_API_URL', 'BASE_API_KEY', 'BASE_MODEL_NAME']
+                      'BASE_API_URL', 'BASE_API_KEY', 'BASE_MODEL_NAME',
+                      'JUDGE_API_URL', 'JUDGE_API_KEY', 'JUDGE_MODEL_NAME']
         existing_keys = []
 
         for line in new_lines:
@@ -834,6 +871,12 @@ def save_evaluation_config():
                     new_lines.append(f"BASE_API_KEY={data.get('base_model', {}).get('api_key', '')}")
                 elif key == 'BASE_MODEL_NAME':
                     new_lines.append(f"BASE_MODEL_NAME={data.get('base_model', {}).get('model_name', '')}")
+                elif key == 'JUDGE_API_URL':
+                    new_lines.append(f"JUDGE_API_URL={data.get('judge_model', {}).get('api_url', '')}")
+                elif key == 'JUDGE_API_KEY':
+                    new_lines.append(f"JUDGE_API_KEY={data.get('judge_model', {}).get('api_key', '')}")
+                elif key == 'JUDGE_MODEL_NAME':
+                    new_lines.append(f"JUDGE_MODEL_NAME={data.get('judge_model', {}).get('model_name', '')}")
 
         # 写入.env文件
         with open(env_path, 'w', encoding='utf-8') as f:
@@ -846,14 +889,6 @@ def save_evaluation_config():
         logger.error(f"保存评估配置失败: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
-async def run_evaluation_task(task):
-    """运行评估任务"""
-    try:
-        await task.run()
-    except Exception as e:
-        logger.error(f"评估任务执行失败: {e}")
-        task.status = 'failed'
-        task.error = str(e)
 
 # 初始化
 if __name__ == '__main__':

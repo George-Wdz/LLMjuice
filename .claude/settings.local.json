@@ -9,7 +9,8 @@
       "Bash(pip install:*)",
       "Bash(pip3:*)",
       "Bash(python3:*)",
-      "Bash(/mnt/d/2025/LLMjuice_tashan/.venv/bin/python -m pip install:*)"
+      "Bash(/mnt/d/2025/LLMjuice_tashan/.venv/bin/python -m pip install:*)",
+      "Bash(source:*)"
     ],
     "deny": [],
     "ask": []
