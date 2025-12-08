@@ -753,7 +753,7 @@ def get_evaluation_config():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/env_config', methods=['GET'])
-def get_env_config():
+def api_get_env_config():
     """获取.env配置"""
     try:
         load_dotenv()

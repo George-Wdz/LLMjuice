@@ -70,27 +70,10 @@
 
                             <div class="mb-3">
                                 <label for="MODEL_NAME" class="form-label">模型名称</label>
-                                <select class="form-select" id="MODEL_NAME" name="MODEL_NAME">
-                                    <option value="deepseek-chat" {% if config.MODEL_NAME == 'deepseek-chat' %}selected{% endif %}>
-                                        deepseek-chat
-                                    </option>
-                                    <option value="deepseek-coder" {% if config.MODEL_NAME == 'deepseek-coder' %}selected{% endif %}>
-                                        deepseek-coder
-                                    </option>
-                                    <option value="gpt-3.5-turbo" {% if config.MODEL_NAME == 'gpt-3.5-turbo' %}selected{% endif %}>
-                                        gpt-3.5-turbo
-                                    </option>
-                                    <option value="gpt-4" {% if config.MODEL_NAME == 'gpt-4' %}selected{% endif %}>
-                                        gpt-4
-                                    </option>
-                                    <option value="custom" {% if config.MODEL_NAME and config.MODEL_NAME not in ['deepseek-chat', 'deepseek-coder', 'gpt-3.5-turbo', 'gpt-4'] %}selected{% endif %}>
-                                        自定义模型
-                                    </option>
-                                </select>
-                                <input type="text" class="form-control mt-2 d-none" id="custom-model-name"
-                                       placeholder="请输入自定义模型名称" value="{{ config.MODEL_NAME }}">
+                                <input type="text" class="form-control" id="MODEL_NAME" name="MODEL_NAME"
+                                       value="{{ config.MODEL_NAME }}" placeholder="请输入模型名称" required>
                                 <div class="form-text">
-                                    选择要使用的AI模型，或输入自定义模型名称。
+                                    输入要使用的AI模型名称，例如：deepseek-chat、gpt-3.5-turbo、gpt-4等。
                                 </div>
                             </div>
                         </div>
@@ -200,28 +183,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-$(document).ready(function() {
-    // 模型选择变化处理
-    $('#MODEL_NAME').change(function() {
-        if ($(this).val() === 'custom') {
-            $('#custom-model-name').removeClass('d-none');
-        } else {
-            $('#custom-model-name').addClass('d-none');
-        }
-    });
-
-    // 初始化时检查是否显示自定义模型输入框
-    if ($('#MODEL_NAME').val() === 'custom') {
-        $('#custom-model-name').removeClass('d-none');
-    }
-});
-
-// 提交表单时处理自定义模型名称
-$('#config-form').submit(function() {
-    if ($('#MODEL_NAME').val() === 'custom') {
-        $('#MODEL_NAME').val($('#custom-model-name').val());
-    }
-});
-</script>
+<!-- 配置页面无需额外的JavaScript -->
 {% endblock %}
