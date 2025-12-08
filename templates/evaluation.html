@@ -1,0 +1,733 @@
+{% extends "base.html" %}
+
+{% block title %}LLM微调效果对比评测 - LLMjuice PDF文献处理系统{% endblock %}
+
+{% block extra_css %}
+<style>
+.evaluation-container {
+    display: flex;
+    gap: 20px;
+    height: calc(100vh - 200px);
+}
+
+.sidebar {
+    width: 400px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.progress-section, .log-section, .results-section {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.log-section {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 300px;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.results-table th, .results-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.results-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+.query-cell {
+    max-width: 200px;
+    word-wrap: break-word;
+}
+
+.score-bad {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.score-good {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.score-medium {
+    color: #ffc107;
+    font-weight: bold;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="evaluation-container">
+    <!-- 左侧配置区 -->
+    <div class="sidebar">
+        <h5><i class="fas fa-cogs me-2"></i>模型配置</h5>
+
+        <!-- 微调后的模型 -->
+        <div class="card mb-3">
+            <div class="card-header bg-primary text-white">
+                <h6 class="mb-0"><i class="fas fa-star me-1"></i>微调后的模型</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">API URL <small class="text-muted">(默认: 阿里云兼容模式)</small></label>
+                    <input type="text" class="form-control form-control-sm" id="ft_api_url"
+                           value="https://dashscope.aliyuncs.com/compatible-mode/v1">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-control form-control-sm" id="ft_api_key">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Model Name</label>
+                    <input type="text" class="form-control form-control-sm" id="ft_model_name"
+                           placeholder="请输入模型名称，如: qwen3-plus">
+                    <div class="form-text">输入完整的模型名称，支持任意模型</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 微调前的基座模型 -->
+        <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+                <h6 class="mb-0"><i class="fas fa-database me-1"></i>基座模型</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">API URL <small class="text-muted">(默认: 阿里云兼容模式)</small></label>
+                    <input type="text" class="form-control form-control-sm" id="base_api_url"
+                           value="https://dashscope.aliyuncs.com/compatible-mode/v1">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-control form-control-sm" id="base_api_key">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Model Name</label>
+                    <input type="text" class="form-control form-control-sm" id="base_model_name"
+                           placeholder="请输入模型名称，如: qwen-plus">
+                    <div class="form-text">输入完整的模型名称，支持任意模型</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Judge 模型 -->
+        <div class="card mb-3">
+            <div class="card-header bg-warning text-dark">
+                <h6 class="mb-0"><i class="fas fa-gavel me-1"></i>Judge 模型</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">API URL</label>
+                    <input type="text" class="form-control form-control-sm" id="judge_api_url"
+                           placeholder="请输入API URL，如: https://dashscope.aliyuncs.com/compatible-mode/v1">
+                    <div class="form-text">支持OpenAI兼容格式API</div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-control form-control-sm" id="judge_api_key"
+                           placeholder="请输入API Key">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Model Name</label>
+                    <input type="text" class="form-control form-control-sm" id="judge_model_name"
+                           placeholder="请输入模型名称，如: qwen-max">
+                    <div class="form-text">输入完整的模型名称，支持任意模型</div>
+                </div>
+                <div class="mb-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="loadJudgeConfig()">
+                        <i class="fas fa-download me-1"></i>重新加载.env配置
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 评估配置 -->
+        <div class="card mb-3">
+            <div class="card-header bg-secondary text-white">
+                <h6 class="mb-0"><i class="fas fa-sliders-h me-1"></i>评估配置</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">数据集文件</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" id="dataset_file"
+                               value="./data/train_data/train_final.jsonl" readonly>
+                        <button class="btn btn-outline-secondary" type="button" onclick="loadDatasetInfo()">
+                            <i class="fas fa-info-circle"></i>
+                        </button>
+                    </div>
+                    <div class="form-text" id="dataset_info"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">抽样数量 N</label>
+                    <input type="number" class="form-control form-control-sm" id="sample_count"
+                           value="10" min="1" max="100">
+                    <div class="form-text">建议数量：5-20条（测试时）或50-100条（正式评估）</div>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success" id="start_evaluation" onclick="startEvaluation()">
+                        <i class="fas fa-play me-1"></i>开始评估
+                    </button>
+                    <button class="btn btn-warning" id="stop_evaluation" onclick="stopEvaluation()" style="display:none;">
+                        <i class="fas fa-stop me-1"></i>停止评估
+                    </button>
+                    <button class="btn btn-info" onclick="loadRecentResults()">
+                        <i class="fas fa-history me-1"></i>加载最近结果
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="main-content">
+        <!-- 进度显示 -->
+        <div class="progress-section">
+            <h6><i class="fas fa-chart-line me-2"></i>评估进度</h6>
+            <div class="progress mb-2" style="height: 25px;">
+                <div class="progress-bar" id="progress_bar" role="progressbar"
+                     style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                    <span id="progress_text">0%</span>
+                </div>
+            </div>
+            <div class="d-flex justify-content-between">
+                <small id="current_step">等待开始...</small>
+                <small id="processed_count">0/0</small>
+            </div>
+        </div>
+
+        <!-- 实时日志 -->
+        <div class="log-section">
+            <h6><i class="fas fa-terminal me-2"></i>实时日志</h6>
+            <div id="log_content" style="font-family: monospace; font-size: 12px; white-space: pre-wrap; height: 250px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 4px;">
+                等待开始评估...\n
+            </div>
+        </div>
+
+        <!-- 结果展示 -->
+        <div class="results-section" id="results_section" style="display: none;">
+            <h6><i class="fas fa-chart-bar me-2"></i>评估结果</h6>
+
+            <!-- 统计概览 -->
+            <div class="row mb-3" id="statistics_overview">
+                <div class="col-md-6">
+                    <div class="card border-primary">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-primary">微调模型平均分</h5>
+                            <h2 class="score-good" id="ft_avg_score">-</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-info">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-info">基座模型平均分</h5>
+                            <h2 class="score-medium" id="base_avg_score">-</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 详细结果表格 -->
+            <div id="results_table_container">
+                <h6>详细结果</h6>
+                <div class="table-responsive">
+                    <table class="results-table" id="results_table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>原始Query</th>
+                                <th>改写Query</th>
+                                <th>标准答案</th>
+                                <th>微调回答</th>
+                                <th>基座回答</th>
+                                <th>微调评分</th>
+                                <th>基座评分</th>
+                                <th>评判理由</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results_tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 导出按钮 -->
+            <div class="mt-3 text-center">
+                <button class="btn btn-primary" onclick="exportResults()">
+                    <i class="fas fa-download me-1"></i>导出结果
+                </button>
+                <button class="btn btn-secondary" onclick="clearResults()">
+                    <i class="fas fa-trash me-1"></i>清空结果
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 模态框：显示详细信息 -->
+<div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">详细信息</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="modal_body">
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let evaluationInProgress = false;
+let evaluationAbortController = null;
+
+// 加载数据集信息
+function loadDatasetInfo() {
+    fetch('/api/dataset_info')
+        .then(response => response.json())
+        .then(data => {
+            const info = document.getElementById('dataset_info');
+            if (data.error) {
+                info.innerHTML = `<span class="text-danger">${data.error}</span>`;
+            } else {
+                info.innerHTML = `<span class="text-success">包含 ${data.total_pairs} 条问答对</span>`;
+                document.getElementById('sample_count').max = Math.min(data.total_pairs, 100);
+            }
+        })
+        .catch(error => {
+            document.getElementById('dataset_info').innerHTML = `<span class="text-danger">加载失败: ${error.message}</span>`;
+        });
+}
+
+// 开始评估
+function startEvaluation() {
+    if (evaluationInProgress) {
+        alert('评估正在进行中，请稍候...');
+        return;
+    }
+
+    // 验证配置
+    const config = getEvaluationConfig();
+    if (!validateConfig(config)) {
+        return;
+    }
+
+    evaluationInProgress = true;
+    evaluationAbortController = new AbortController();
+
+    // 更新UI状态
+    document.getElementById('start_evaluation').style.display = 'none';
+    document.getElementById('stop_evaluation').style.display = 'block';
+    document.getElementById('results_section').style.display = 'none';
+    clearLog();
+    addLog('开始评估...', 'info');
+
+    // 发送请求
+    fetch('/api/start_evaluation', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config),
+        signal: evaluationAbortController.signal
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            addLog(`评估已启动，任务ID: ${data.task_id}`, 'success');
+            startProgressMonitoring(data.task_id);
+        } else {
+            throw new Error(data.message || '启动失败');
+        }
+    })
+    .catch(error => {
+        if (error.name !== 'AbortError') {
+            addLog(`启动失败: ${error.message}`, 'error');
+            resetEvaluationState();
+        }
+    });
+}
+
+// 停止评估
+function stopEvaluation() {
+    if (evaluationAbortController) {
+        evaluationAbortController.abort();
+    }
+    addLog('用户停止了评估', 'warning');
+    resetEvaluationState();
+}
+
+// 重置评估状态
+function resetEvaluationState() {
+    evaluationInProgress = false;
+    evaluationAbortController = null;
+    document.getElementById('start_evaluation').style.display = 'block';
+    document.getElementById('stop_evaluation').style.display = 'none';
+}
+
+// 获取评估配置
+function getEvaluationConfig() {
+    return {
+        ft_model: {
+            api_url: document.getElementById('ft_api_url').value,
+            api_key: document.getElementById('ft_api_key').value,
+            model_name: document.getElementById('ft_model_name').value
+        },
+        base_model: {
+            api_url: document.getElementById('base_api_url').value,
+            api_key: document.getElementById('base_api_key').value,
+            model_name: document.getElementById('base_model_name').value
+        },
+        judge_model: {
+            api_url: document.getElementById('judge_api_url').value,
+            api_key: document.getElementById('judge_api_key').value,
+            model_name: document.getElementById('judge_model_name').value
+        },
+        sample_count: parseInt(document.getElementById('sample_count').value)
+    };
+}
+
+// 验证配置
+function validateConfig(config) {
+    // 验证微调模型配置
+    const ft_model = config.ft_model;
+    if (!ft_model.api_url || !ft_model.api_key || !ft_model.model_name) {
+        alert('微调模型的配置不完整，请填写所有字段');
+        return false;
+    }
+
+    // 验证基座模型配置
+    const base_model = config.base_model;
+    if (!base_model.api_url || !base_model.api_key || !base_model.model_name) {
+        alert('基座模型的配置不完整，请填写所有字段');
+        return false;
+    }
+
+    // 验证Judge模型配置（自动从.env加载，如果为空则提示加载）
+    const judge_model = config.judge_model;
+    if (!judge_model.api_url || !judge_model.api_key || !judge_model.model_name) {
+        alert('Judge模型配置不完整，请点击"重新加载.env配置"按钮');
+        return false;
+    }
+
+    if (config.sample_count < 1 || config.sample_count > 100) {
+        alert('抽样数量必须在1-100之间');
+        return false;
+    }
+
+    return true;
+}
+
+// 开始进度监控
+function startProgressMonitoring(taskId) {
+    const monitorInterval = setInterval(() => {
+        fetch(`/api/evaluation_progress/${taskId}`)
+            .then(response => response.json())
+            .then(data => {
+                updateProgress(data);
+
+                if (data.status === 'completed') {
+                    clearInterval(monitorInterval);
+                    addLog('评估完成！', 'success');
+                    loadResults(taskId);
+                    resetEvaluationState();
+                } else if (data.status === 'failed') {
+                    clearInterval(monitorInterval);
+                    addLog(`评估失败: ${data.error}`, 'error');
+                    resetEvaluationState();
+                } else if (data.status === 'stopped') {
+                    clearInterval(monitorInterval);
+                    addLog('评估已停止', 'warning');
+                    resetEvaluationState();
+                }
+            })
+            .catch(error => {
+                console.error('Progress monitoring error:', error);
+            });
+    }, 1000);
+}
+
+// 更新进度
+function updateProgress(data) {
+    const progressBar = document.getElementById('progress_bar');
+    const progressText = document.getElementById('progress_text');
+    const currentStep = document.getElementById('current_step');
+    const processedCount = document.getElementById('processed_count');
+
+    progressBar.style.width = `${data.progress}%`;
+    progressBar.setAttribute('aria-valuenow', data.progress);
+    progressText.textContent = `${data.progress}%`;
+
+    currentStep.textContent = data.current_step || '处理中...';
+    processedCount.textContent = `${data.processed || 0}/${data.total || 0}`;
+
+    // 添加日志
+    if (data.log_message) {
+        addLog(data.log_message, 'info');
+    }
+}
+
+// 加载结果
+function loadResults(taskId) {
+    fetch(`/api/evaluation_results/${taskId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayResults(data.results);
+            } else {
+                alert(`加载结果失败: ${data.message}`);
+            }
+        })
+        .catch(error => {
+            alert(`加载结果失败: ${error.message}`);
+        });
+}
+
+// 显示结果
+function displayResults(results) {
+    document.getElementById('results_section').style.display = 'block';
+
+    // 计算平均分
+    const ftScores = results.map(r => r.ft_model_score).filter(s => s !== null);
+    const baseScores = results.map(r => r.base_model_score).filter(s => s !== null);
+
+    const ftAvg = ftScores.length > 0 ? (ftScores.reduce((a, b) => a + b, 0) / ftScores.length).toFixed(2) : '-';
+    const baseAvg = baseScores.length > 0 ? (baseScores.reduce((a, b) => a + b, 0) / baseScores.length).toFixed(2) : '-';
+
+    document.getElementById('ft_avg_score').textContent = ftAvg;
+    document.getElementById('base_avg_score').textContent = baseAvg;
+
+    // 填充表格
+    const tbody = document.getElementById('results_tbody');
+    tbody.innerHTML = '';
+
+    results.forEach((result, index) => {
+        const row = tbody.insertRow();
+        row.innerHTML = `
+            <td>${index + 1}</td>
+            <td class="query-cell" title="${result.original_query}">${truncateText(result.original_query, 50)}</td>
+            <td class="query-cell" title="${result.rewritten_query}">${truncateText(result.rewritten_query, 50)}</td>
+            <td class="query-cell" title="${result.standard_answer}">${truncateText(result.standard_answer, 50)}</td>
+            <td class="query-cell" title="${result.ft_model_response}">${truncateText(result.ft_model_response, 50)}</td>
+            <td class="query-cell" title="${result.base_model_response}">${truncateText(result.base_model_response, 50)}</td>
+            <td class="${getScoreClass(result.ft_model_score)}">${result.ft_model_score || '-'}</td>
+            <td class="${getScoreClass(result.base_model_score)}">${result.base_model_score || '-'}</td>
+            <td class="query-cell" title="${result.reasoning}">${truncateText(result.reasoning, 30)}</td>
+        `;
+
+        // 添加点击事件显示详细信息
+        row.onclick = () => showDetail(result, index + 1);
+        row.style.cursor = 'pointer';
+    });
+}
+
+// 显示详细信息
+function showDetail(result, index) {
+    const modalBody = document.getElementById('modal_body');
+    modalBody.innerHTML = `
+        <div class="row">
+            <div class="col-12"><strong>序号:</strong> ${index}</div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-12"><strong>原始Query:</strong></div>
+            <div class="col-12"><p>${result.original_query}</p></div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-12"><strong>改写Query:</strong></div>
+            <div class="col-12"><p>${result.rewritten_query}</p></div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-12"><strong>标准答案:</strong></div>
+            <div class="col-12"><p>${result.standard_answer}</p></div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-6"><strong>微调模型回答:</strong></div>
+            <div class="col-6"><strong>评分: <span class="${getScoreClass(result.ft_model_score)}">${result.ft_model_score}</span></strong></div>
+            <div class="col-12"><p>${result.ft_model_response}</p></div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-6"><strong>基座模型回答:</strong></div>
+            <div class="col-6"><strong>评分: <span class="${getScoreClass(result.base_model_score)}">${result.base_model_score}</span></strong></div>
+            <div class="col-12"><p>${result.base_model_response}</p></div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-12"><strong>评判理由:</strong></div>
+            <div class="col-12"><p>${result.reasoning}</p></div>
+        </div>
+    `;
+
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+}
+
+// 截断文本
+function truncateText(text, maxLength) {
+    if (!text) return '-';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
+
+// 获取分数样式类
+function getScoreClass(score) {
+    if (score === null || score === undefined) return '';
+    if (score >= 8) return 'score-good';
+    if (score >= 6) return 'score-medium';
+    return 'score-bad';
+}
+
+// 日志功能
+function addLog(message, type = 'info') {
+    const logContent = document.getElementById('log_content');
+    const timestamp = new Date().toLocaleTimeString();
+    const typeIcon = {
+        'info': 'ℹ️',
+        'success': '✅',
+        'warning': '⚠️',
+        'error': '❌'
+    }[type] || 'ℹ️';
+
+    logContent.textContent += `[${timestamp}] ${typeIcon} ${message}\n`;
+    logContent.scrollTop = logContent.scrollHeight;
+}
+
+function clearLog() {
+    document.getElementById('log_content').textContent = '';
+}
+
+// 加载最近结果
+function loadRecentResults() {
+    fetch('/api/recent_evaluation_results')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.results) {
+                displayResults(data.results);
+                addLog(`加载了最近的评估结果，共${data.results.length}条记录`, 'success');
+            } else {
+                alert('没有找到最近的评估结果');
+            }
+        })
+        .catch(error => {
+            alert(`加载最近结果失败: ${error.message}`);
+        });
+}
+
+// 导出结果
+function exportResults() {
+    // 实现导出功能
+    alert('导出功能待实现');
+}
+
+// 清空结果
+function clearResults() {
+    document.getElementById('results_section').style.display = 'none';
+    document.getElementById('results_tbody').innerHTML = '';
+    addLog('已清空显示结果', 'info');
+}
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadDatasetInfo();
+
+    // 自动加载.env配置到Judge模型
+    loadJudgeConfig();
+
+    // 加载保存的配置
+    loadSavedConfig();
+});
+
+// 加载Judge模型配置（从.env）
+function loadJudgeConfig() {
+    fetch('/api/env_config')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('judge_api_url').value = data.api_url || '';
+                document.getElementById('judge_api_key').value = data.api_key || '';
+                document.getElementById('judge_model_name').value = data.model_name || '';
+                addLog('已加载.env配置到Judge模型', 'success');
+            } else {
+                addLog('加载.env配置失败: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            addLog('加载.env配置失败: ' + error.message, 'error');
+        });
+}
+
+// 保存配置到.env
+function saveConfigToEnv() {
+    const config = getEvaluationConfig();
+
+    fetch('/api/save_evaluation_config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            addLog('配置已保存到.env文件', 'success');
+        } else {
+            addLog('保存配置失败: ' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        addLog('保存配置失败: ' + error.message, 'error');
+    });
+}
+
+// 加载保存的配置
+function loadSavedConfig() {
+    fetch('/api/evaluation_config')
+        .then(response => response.json())
+        .then(data => {
+            if (data.config) {
+                // 只填充微调模型和基座模型配置，不覆盖Judge模型的.env配置
+                document.getElementById('ft_api_url').value = data.config.ft_model?.api_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+                document.getElementById('ft_model_name').value = data.config.ft_model?.model_name || '';
+                document.getElementById('base_api_url').value = data.config.base_model?.api_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+                document.getElementById('base_model_name').value = data.config.base_model?.model_name || '';
+
+                // API Key 不自动填充，出于安全考虑
+                addLog('已加载微调和基座模型配置', 'success');
+            }
+        })
+        .catch(error => {
+            console.log('Failed to load saved config:', error);
+        });
+}
+</script>
+{% endblock %}

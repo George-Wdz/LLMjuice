@@ -5,7 +5,11 @@
       "Bash(python -m py_compile:*)",
       "Bash(python:*)",
       "Bash(curl:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3:*)",
+      "Bash(python3:*)",
+      "Bash(/mnt/d/2025/LLMjuice_tashan/.venv/bin/python -m pip install:*)"
     ],
     "deny": [],
     "ask": []
