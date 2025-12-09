@@ -261,7 +261,7 @@ class EvaluationTask:
                     model_1_name = model_a_name
                     model_2_name = model_b_name
 
-                    messages = [
+                messages = [
                         {
                             "role": "system",
                             "content": """你是一位精通大模型技术原理的评估专家。你的任务是根据【标准答案】，对比评估两个模型回答的质量。

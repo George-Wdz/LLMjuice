@@ -702,6 +702,31 @@ def get_evaluation_progress(task_id):
         logger.error(f"获取进度失败: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/stop_evaluation/<task_id>', methods=['POST'])
+def stop_evaluation(task_id):
+    """停止评估任务"""
+    try:
+        if task_id not in evaluation_tasks:
+            logger.warning(f"尝试停止不存在的任务: {task_id}")
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+
+        task = evaluation_tasks[task_id]
+        if task.status == 'completed':
+            return jsonify({'success': False, 'message': '任务已完成'}), 400
+
+        # 调用任务的停止方法
+        task.stop()
+        logger.info(f"已发送停止信号给任务: {task_id}")
+
+        return jsonify({
+            'success': True,
+            'message': '已发送停止信号'
+        })
+
+    except Exception as e:
+        logger.error(f"停止任务失败: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/evaluation_results/<task_id>')
 def get_evaluation_results(task_id):
     """获取评估结果"""

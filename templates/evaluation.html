@@ -310,6 +310,8 @@
 <script>
 let evaluationInProgress = false;
 let evaluationAbortController = null;
+let currentTaskId = null;
+let progressMonitorInterval = null;
 
 // 加载数据集信息
 function loadDatasetInfo() {
@@ -364,8 +366,9 @@ function startEvaluation() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            addLog(`评估已启动，任务ID: ${data.task_id}`, 'success');
-            startProgressMonitoring(data.task_id);
+            currentTaskId = data.task_id;
+            addLog(`评估已启动，任务ID: ${currentTaskId}`, 'success');
+            startProgressMonitoring(currentTaskId);
         } else {
             throw new Error(data.message || '启动失败');
         }
@@ -383,6 +386,19 @@ function stopEvaluation() {
     if (evaluationAbortController) {
         evaluationAbortController.abort();
     }
+
+    // 清理进度监控
+    clearProgressMonitoring();
+
+    // 通知后端停止任务
+    if (currentTaskId) {
+        fetch(`/api/stop_evaluation/${currentTaskId}`, {
+            method: 'POST'
+        }).catch(error => {
+            console.error('停止任务失败:', error);
+        });
+    }
+
     addLog('用户停止了评估', 'warning');
     resetEvaluationState();
 }
@@ -391,6 +407,7 @@ function stopEvaluation() {
 function resetEvaluationState() {
     evaluationInProgress = false;
     evaluationAbortController = null;
+    currentTaskId = null;
     document.getElementById('start_evaluation').style.display = 'block';
     document.getElementById('stop_evaluation').style.display = 'none';
 }
@@ -448,31 +465,54 @@ function validateConfig(config) {
     return true;
 }
 
+// 清理进度监控
+function clearProgressMonitoring() {
+    if (progressMonitorInterval) {
+        clearInterval(progressMonitorInterval);
+        progressMonitorInterval = null;
+    }
+}
+
 // 开始进度监控
 function startProgressMonitoring(taskId) {
-    const monitorInterval = setInterval(() => {
+    clearProgressMonitoring(); // 先清理之前的监控
+
+    progressMonitorInterval = setInterval(() => {
         fetch(`/api/evaluation_progress/${taskId}`)
-            .then(response => response.json())
+            .then(response => {
+                if (response.status === 404) {
+                    // 任务不存在，停止监控
+                    clearProgressMonitoring();
+                    addLog('任务不存在，已停止监控', 'warning');
+                    resetEvaluationState();
+                    return;
+                }
+                return response.json();
+            })
             .then(data => {
+                if (!data) return; // 404情况已经被处理
+
                 updateProgress(data);
 
                 if (data.status === 'completed') {
-                    clearInterval(monitorInterval);
+                    clearProgressMonitoring();
                     addLog('评估完成！', 'success');
                     loadResults(taskId);
                     resetEvaluationState();
                 } else if (data.status === 'failed') {
-                    clearInterval(monitorInterval);
+                    clearProgressMonitoring();
                     addLog(`评估失败: ${data.error}`, 'error');
                     resetEvaluationState();
                 } else if (data.status === 'stopped') {
-                    clearInterval(monitorInterval);
+                    clearProgressMonitoring();
                     addLog('评估已停止', 'warning');
                     resetEvaluationState();
                 }
             })
             .catch(error => {
                 console.error('Progress monitoring error:', error);
+                // 网络错误时不要立即停止，可能只是临时问题
+                addLog(`监控连接错误: ${error.message}`, 'warning');
             });
     }, 1000);
 }
@@ -647,8 +687,155 @@ function loadRecentResults() {
 
 // 导出结果
 function exportResults() {
-    // 实现导出功能
-    alert('导出功能待实现');
+    // 获取当前的评估结果
+    fetch('/api/recent_evaluation_results')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.results) {
+                const markdownContent = generateMarkdownReport(data.results, data.file_name);
+                downloadMarkdownFile(markdownContent);
+            } else {
+                alert('没有找到可导出的评估结果，请先运行评估');
+            }
+        })
+        .catch(error => {
+            console.error('导出失败:', error);
+            alert('导出失败: ' + error.message);
+        });
+}
+
+// 生成Markdown报告
+function generateMarkdownReport(results, fileName) {
+    const currentDate = new Date().toLocaleString('zh-CN');
+
+    // 计算统计数据
+    const ftScores = results.map(r => r.ft_model_score).filter(s => s !== null && s !== undefined);
+    const baseScores = results.map(r => r.base_model_score).filter(s => s !== null && s !== undefined);
+
+    const ftAvg = ftScores.length > 0 ? (ftScores.reduce((a, b) => a + b, 0) / ftScores.length).toFixed(2) : '0';
+    const baseAvg = baseScores.length > 0 ? (baseScores.reduce((a, b) => a + b, 0) / baseScores.length).toFixed(2) : '0';
+
+    const improvement = ftScores.length > 0 && baseScores.length > 0 ?
+        ((ftAvg - baseAvg) / baseAvg * 100).toFixed(2) : '0';
+
+    let markdown = `# LLM模型评估报告
+
+## 报告信息
+
+- **生成时间**: ${currentDate}
+- **数据源**: ${fileName || '最新评估结果'}
+- **评估样本数**: ${results.length}
+
+## 统计概览
+
+| 模型类型 | 平均得分 | 样本数 |
+|---------|---------|--------|
+| 微调模型 | ${ftAvg} | ${ftScores.length} |
+| 基座模型 | ${baseAvg} | ${baseScores.length} |
+| **提升幅度** | **${improvement}%** | - |
+
+## 详细评估结果
+
+`;
+
+    // 添加详细结果表格
+    markdown += `| 序号 | 原始Query | 改写Query | 标准答案 | 微调模型回答 | 基座模型回答 | 微调评分 | 基座评分 | 评判理由 |
+|------|-----------|-----------|----------|-------------|-------------|----------|----------|----------|
+`;
+
+    results.forEach((result, index) => {
+        const originalQuery = (result.original_query || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        const rewrittenQuery = (result.rewritten_query || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        const standardAnswer = (result.standard_answer || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        const ftResponse = (result.ft_model_response || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        const baseResponse = (result.base_model_response || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        const reasoning = (result.reasoning || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+
+        markdown += `| ${index + 1} | ${originalQuery.substring(0, 50)}${originalQuery.length > 50 ? '...' : ''} | ${rewrittenQuery.substring(0, 50)}${rewrittenQuery.length > 50 ? '...' : ''} | ${standardAnswer.substring(0, 50)}${standardAnswer.length > 50 ? '...' : ''} | ${ftResponse.substring(0, 50)}${ftResponse.length > 50 ? '...' : ''} | ${baseResponse.substring(0, 50)}${baseResponse.length > 50 ? '...' : ''} | ${result.ft_model_score || '-'} | ${result.base_model_score || '-'} | ${reasoning.substring(0, 30)}${reasoning.length > 30 ? '...' : ''} |
+`;
+    });
+
+    // 添加详细内容部分
+    markdown += `
+
+## 详细内容
+
+`;
+
+    results.forEach((result, index) => {
+        markdown += `### 评估样本 ${index + 1}
+
+**原始Query:**
+${result.original_query || '-'}
+
+**改写Query:**
+${result.rewritten_query || '-'}
+
+**标准答案:**
+${result.standard_answer || '-'}
+
+**微调模型回答** (评分: ${result.ft_model_score || '-'}):
+${result.ft_model_response || '-'}
+
+**基座模型回答** (评分: ${result.base_model_score || '-'}):
+${result.base_model_response || '-'}
+
+**评判理由:**
+${result.reasoning || '-'}
+
+---
+
+`;
+    });
+
+    // 添加总结
+    markdown += `## 总结
+
+本次评估共测试了 ${results.length} 个样本，微调模型的平均得分为 ${ftAvg}，基座模型的平均得分为 ${baseAvg}。
+
+`;
+
+    if (parseFloat(improvement) > 0) {
+        markdown += `✅ **微调模型表现更优**，相比基座模型提升了 ${improvement}%。
+
+`;
+    } else if (parseFloat(improvement) < 0) {
+        markdown += `❌ **微调模型表现较差**，相比基座模型下降了 ${Math.abs(improvement)}%。
+
+`;
+    } else {
+        markdown += `➖ **两模型表现相当**。
+
+`;
+    }
+
+    markdown += `---
+
+*本报告由 LLMjuice PDF文献处理系统自动生成*`;
+
+    return markdown;
+}
+
+// 下载Markdown文件
+function downloadMarkdownFile(content) {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const fileName = `LLM评估报告_${timestamp}.md`;
+
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.style.display = 'none';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+
+    addLog(`评估报告已导出: ${fileName}`, 'success');
 }
 
 // 清空结果
